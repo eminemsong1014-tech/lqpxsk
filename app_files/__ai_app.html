@@ -924,33 +924,7 @@ var ParallelChatChannels=(function(e){Object.defineProperty(e,Symbol.toStringTag
   if (!window.ColorboxAI) window.ColorboxAI = {};
   if (!window.ColorboxAI.cloud) window.ColorboxAI.cloud = {};
   (function () {
-    var PROXIES = [
-      { name: 'codetabs', fn: function (url) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url); } },
-      { name: 'allorigins', fn: function (url) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url); } },
-      { name: 'corsproxy', fn: function (url) { return 'https://corsproxy.org/?' + encodeURIComponent(url); } }
-    ];
     var SEASONS_CACHE = null;
-    function tryProxies(url, opts, index) {
-      if (index >= PROXIES.length) throw new Error('All proxies failed');
-      var proxy = PROXIES[index];
-      var proxyUrl = proxy.fn(url);
-      var cleanOpts = Object.assign({}, opts || {});
-      if (cleanOpts.headers) {
-        cleanOpts.headers = Object.assign({}, cleanOpts.headers);
-        delete cleanOpts.headers['Authorization'];
-      }
-      cleanOpts.mode = 'cors';
-      return fetch(proxyUrl, cleanOpts).then(function (res) {
-        if (!res.ok && res.status !== 200) {
-          console.warn('[CORS] Proxy ' + proxy.name + ' returned status ' + res.status);
-          return tryProxies(url, opts, index + 1);
-        }
-        return res;
-      }).catch(function (e) {
-        console.warn('[CORS] Proxy ' + proxy.name + ' error:', e.message);
-        return tryProxies(url, opts, index + 1);
-      });
-    }
     function getMockSeasons() {
       if (!SEASONS_CACHE) {
         var seasons = [];
@@ -970,6 +944,28 @@ var ParallelChatChannels=(function(e){Object.defineProperty(e,Symbol.toStringTag
     function getMockSimulate(data) {
       return { mode: 'season', result: {} };
     }
+    function handleApiRequest(finalUrl, params) {
+      console.log('[API-MOCK] Using local mock for:', finalUrl);
+      if (finalUrl.indexOf('/seasons') > -1) {
+        return { statusCode: 200, code: 200, message: 'ok (mock)', data: getMockSeasons() };
+      }
+      if (finalUrl.indexOf('/team-roster') > -1) {
+        var match = finalUrl.match(/[?&]season=([^&]+)/);
+        var tmatch = finalUrl.match(/[?&]team=([^&]+)/);
+        return { statusCode: 200, code: 200, message: 'ok (mock)', data: getMockTeamRoster(match ? decodeURIComponent(match[1]) : '', tmatch ? decodeURIComponent(tmatch[1]) : '') };
+      }
+      if (finalUrl.indexOf('/team-offers') > -1) {
+        return { statusCode: 200, code: 200, message: 'ok (mock)', data: getMockTeamOffers(params.data) };
+      }
+      if (finalUrl.indexOf('/simulate') > -1) {
+        return { statusCode: 200, code: 200, message: 'ok (mock)', data: getMockSimulate(params.data) };
+      }
+      if (finalUrl.indexOf('/career/') > -1) {
+        return { statusCode: 200, code: 200, message: 'ok (mock)', data: {} };
+      }
+      console.log('[API-MOCK] Generic mock for:', finalUrl);
+      return { statusCode: 200, code: 200, message: 'ok (mock)', data: {} };
+    }
     window.ColorboxAI.cloud.request = function (params) {
       var url = params && params.url;
       if (!url) return Promise.resolve({ statusCode: 400, code: 400, message: 'Missing url', data: null });
@@ -984,37 +980,8 @@ var ParallelChatChannels=(function(e){Object.defineProperty(e,Symbol.toStringTag
       } else if (method === 'POST' && params.data !== undefined) {
         fetchOpts.body = typeof params.data === 'string' ? params.data : JSON.stringify(params.data);
       }
-      return tryProxies(finalUrl, fetchOpts, 0).then(function (res) {
-        return res.text();
-      }).then(function (text) {
-        var json;
-        try { json = JSON.parse(text); } catch (e) { json = null; }
-        if (json && typeof json === 'object') {
-          return { statusCode: 200, code: 200, message: 'ok', data: json };
-        }
-        return { statusCode: 200, code: 200, message: 'ok', data: text };
-      }).catch(function (e) {
-        console.warn('[CORS] Using mock data for:', finalUrl);
-        if (finalUrl.indexOf('/seasons') > -1) {
-          return { statusCode: 200, code: 200, message: 'ok (mock)', data: getMockSeasons() };
-        }
-        if (finalUrl.indexOf('/team-roster') > -1) {
-          var match = finalUrl.match(/[?&]season=([^&]+)/);
-          var tmatch = finalUrl.match(/[?&]team=([^&]+)/);
-          return { statusCode: 200, code: 200, message: 'ok (mock)', data: getMockTeamRoster(match ? decodeURIComponent(match[1]) : '', tmatch ? decodeURIComponent(tmatch[1]) : '') };
-        }
-        if (finalUrl.indexOf('/team-offers') > -1) {
-          return { statusCode: 200, code: 200, message: 'ok (mock)', data: getMockTeamOffers(params.data) };
-        }
-        if (finalUrl.indexOf('/simulate') > -1) {
-          return { statusCode: 200, code: 200, message: 'ok (mock)', data: getMockSimulate(params.data) };
-        }
-        if (finalUrl.indexOf('/career/') > -1) {
-          return { statusCode: 200, code: 200, message: 'ok (mock)', data: {} };
-        }
-        console.error('[CORS] No mock for:', finalUrl);
-        return { statusCode: 500, code: 500, message: 'network error: ' + (e && e.message || 'unknown'), data: null };
-      });
+      var result = handleApiRequest(finalUrl, params);
+      return Promise.resolve(result);
     };
     window.ColorboxAI.cloud.auth = function (params) {
       return Promise.resolve({ code: 200, message: 'ok', data: { expiresIn: 7200 } });
